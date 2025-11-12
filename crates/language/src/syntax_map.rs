@@ -626,12 +626,27 @@ impl SyntaxSnapshot {
                                 &parent_layer_changed_ranges,
                                 &included_ranges,
                             );
+                            log::info!(
+                                "COMBINED INJECTION DEBUG (update existing): language:{}, changed_indices:{:?}",
+                                language.name(),
+                                changed_indices
+                            );
+                            log::info!(
+                                "  BEFORE insert_newlines: start_byte:{}, start_point:{:?}, ranges:{:?}",
+                                step_start_byte,
+                                step_start_point,
+                                LogIncludedRanges(&included_ranges)
+                            );
                             insert_newlines_between_ranges(
                                 changed_indices,
                                 &mut included_ranges,
                                 text,
                                 step_start_byte,
                                 step_start_point,
+                            );
+                            log::info!(
+                                "  AFTER insert_newlines: ranges:{:?}",
+                                LogIncludedRanges(&included_ranges)
                             );
                         }
 
@@ -679,12 +694,26 @@ impl SyntaxSnapshot {
                         );
                     } else {
                         if matches!(step.mode, ParseMode::Combined { .. }) {
+                            log::info!(
+                                "COMBINED INJECTION DEBUG (create new): language:{}",
+                                language.name()
+                            );
+                            log::info!(
+                                "  BEFORE insert_newlines: start_byte:{}, start_point:{:?}, ranges:{:?}",
+                                step_start_byte,
+                                step_start_point,
+                                LogIncludedRanges(&included_ranges)
+                            );
                             insert_newlines_between_ranges(
                                 0..included_ranges.len(),
                                 &mut included_ranges,
                                 text,
                                 step_start_byte,
                                 step_start_point,
+                            );
+                            log::info!(
+                                "  AFTER insert_newlines: ranges:{:?}",
+                                LogIncludedRanges(&included_ranges)
                             );
                         }
 
@@ -986,6 +1015,16 @@ impl<'a> SyntaxMapCaptures<'a> {
                 None => continue,
             };
 
+            log::info!(
+                "CAPTURES QUERY: language:{}, layer.offset:(byte:{}, point:{:?}), layer.depth:{}, query_range:{}..{}",
+                layer.language.name(),
+                layer.offset.0,
+                layer.offset.1,
+                layer.depth,
+                range.start,
+                range.end
+            );
+
             let mut query_cursor = QueryCursorHandle::new();
 
             // TODO - add a Tree-sitter API to remove the need for this.
@@ -1038,11 +1077,20 @@ impl<'a> SyntaxMapCaptures<'a> {
     pub fn peek(&self) -> Option<SyntaxMapCapture<'a>> {
         let layer = self.layers[..self.active_layer_count].first()?;
         let capture = layer.next_capture?;
-        Some(SyntaxMapCapture {
+        let result = SyntaxMapCapture {
             grammar_index: layer.grammar_index,
             index: capture.index,
             node: capture.node,
-        })
+        };
+        log::info!(
+            "CAPTURE PEEK: grammar_idx:{}, capture_idx:{}, node_range:{}..{} (kind:{})",
+            result.grammar_index,
+            result.index,
+            result.node.start_byte(),
+            result.node.end_byte(),
+            result.node.kind()
+        );
+        Some(result)
     }
 
     pub fn advance(&mut self) -> bool {
@@ -1301,6 +1349,13 @@ fn parse_text(
     ranges: &[tree_sitter::Range],
     old_tree: Option<Tree>,
 ) -> anyhow::Result<Tree> {
+    log::info!(
+        "PARSE_TEXT: grammar:{}, start_byte:{}, ranges:{:?}",
+        grammar.ts_language.language,
+        start_byte,
+        LogIncludedRanges(ranges)
+    );
+
     with_parser(|parser| {
         let mut chunks = text.chunks_in_range(start_byte..text.len());
         parser.set_included_ranges(ranges)?;
@@ -1403,12 +1458,22 @@ fn get_injections(
                 let range = text.anchor_before(step_range.start)..text.anchor_after(step_range.end);
                 if let Some(language) = language {
                     if combined {
+                        log::info!(
+                            "INJECTION MATCH (combined): language:{}, content_ranges:{:?}",
+                            language.name(),
+                            LogIncludedRanges(&content_ranges)
+                        );
                         combined_injection_ranges
                             .entry(language.id)
                             .or_insert_with(|| (language.clone(), vec![]))
                             .1
                             .extend(content_ranges);
                     } else {
+                        log::info!(
+                            "INJECTION MATCH (single): language:{}, content_ranges:{:?}",
+                            language.name(),
+                            LogIncludedRanges(&content_ranges)
+                        );
                         queue.push(ParseStep {
                             depth,
                             language: ParseStepLanguage::Loaded { language },
